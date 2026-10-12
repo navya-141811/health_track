@@ -126,7 +126,7 @@ export class RuleEngine {
 
   private _check(
     reading: VitalReading,
-    patient: PatientProfile,
+    _patient: PatientProfile,
     rule_name: string,
     condition: boolean,
     actual_value: number,

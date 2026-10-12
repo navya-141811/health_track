@@ -92,27 +92,28 @@ function humanise(event: CareEvent, patientName: string): { headline: string; de
 
 function AlertCard({
   event,
+  patientName,
   onAcknowledge,
   onResolve,
 }: {
   event: CareEvent
+  patientName: string
   onAcknowledge: (id: string) => void
   onResolve: (id: string) => void
 }) {
-  const patient = PATIENTS_BY_ID[event.patient_id]
-  const { headline, detail } = humanise(event, patient?.name ?? event.patient_id)
+  const { headline, detail } = humanise(event, patientName)
   const isResolved = event.status === 'resolved'
   const isAcknowledged = event.status === 'acknowledged' || event.status === 'escalated'
 
   // Colour: urgent vital = red, review vital = amber, assistance = orange, quality = gray
   const urgencyBar =
     event.category === 'data_quality'
-      ? 'border-l-gray-300'
+      ? 'border-l-gray-600'
       : event.priority === 'urgent'
         ? 'border-l-red-500'
         : event.priority === 'review'
-          ? 'border-l-amber-400'
-          : 'border-l-orange-400'
+          ? 'border-l-amber-500'
+          : 'border-l-orange-500'
 
   const bgClass = isResolved
     ? 'bg-gray-50'
@@ -124,15 +125,11 @@ function AlertCard({
           ? 'bg-amber-50'
           : 'bg-orange-50'
 
-  // Status pill
   const statusLabel =
-    isResolved
-      ? 'Closed'
-      : isAcknowledged
-        ? 'Seen'
-        : event.category === 'data_quality'
-          ? 'Active'
-          : 'Needs attention'
+    isResolved ? 'Closed' :
+    isAcknowledged ? 'Seen' :
+    event.category === 'data_quality' ? 'Active' :
+    'Needs attention'
 
   const statusColour = isResolved
     ? 'bg-gray-100 text-gray-500'
@@ -147,7 +144,6 @@ function AlertCard({
       className={`rounded-lg border-l-4 border border-gray-200 p-3 ${urgencyBar} ${bgClass} ${isResolved ? 'opacity-60' : ''}`}
       role="listitem"
     >
-      {/* Top row: headline + time */}
       <div className="flex items-start justify-between gap-2">
         <p className={`text-sm font-semibold ${isResolved ? 'text-gray-500' : 'text-gray-900'}`}>
           {headline}
@@ -157,10 +153,8 @@ function AlertCard({
         </span>
       </div>
 
-      {/* Detail */}
       <p className="mt-1 text-xs text-gray-600 leading-relaxed">{detail}</p>
 
-      {/* Status + actions */}
       <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColour}`}>
           {statusLabel}
@@ -214,25 +208,25 @@ function ActionButton({
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export function EventPanel({ patientId }: Props) {
-  const { events, acknowledgeEvent, resolveEvent } = useSimulator()
+  const { events, acknowledgeEvent, resolveEvent, dynamicPatients } = useSimulator()
 
+  const allPatientsById = {
+    ...PATIENTS_BY_ID,
+    ...Object.fromEntries(dynamicPatients.map((p) => [p.patient_id, p])),
+  }
+
+  const patientName = allPatientsById[patientId]?.name ?? patientId
   const patientEvents = events.filter((e) => e.patient_id === patientId)
 
-  // Active vital-sign alerts (unresolved) — shown prominently at top
   const activeAlerts = patientEvents.filter(
     (e) => e.category === 'vital_sign' && e.status !== 'resolved',
   )
-
-  // Resolved vital-sign + assistance events — activity log
   const activityLog = patientEvents.filter(
     (e) =>
       (e.category === 'vital_sign' && e.status === 'resolved') ||
       e.category === 'assistance',
   )
-
-  // Data-quality notices — always at bottom, clearly secondary
   const connectionNotices = patientEvents.filter((e) => e.category === 'data_quality')
-
   const hasAnything = patientEvents.length > 0
 
   return (
@@ -241,11 +235,10 @@ export function EventPanel({ patientId }: Props) {
 
       {!hasAnything && (
         <p className="text-sm text-gray-400 py-2">
-          No alerts yet. Start the simulation to begin monitoring.
+          No alerts yet. Monitoring is running automatically.
         </p>
       )}
 
-      {/* ── Active alerts ─────────────────────────────────────────────────── */}
       {activeAlerts.length > 0 && (
         <section>
           <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-red-600">
@@ -257,6 +250,7 @@ export function EventPanel({ patientId }: Props) {
               <AlertCard
                 key={e.event_id}
                 event={e}
+                patientName={patientName}
                 onAcknowledge={acknowledgeEvent}
                 onResolve={resolveEvent}
               />
@@ -276,6 +270,7 @@ export function EventPanel({ patientId }: Props) {
               <AlertCard
                 key={e.event_id}
                 event={e}
+                patientName={patientName}
                 onAcknowledge={acknowledgeEvent}
                 onResolve={resolveEvent}
               />
@@ -284,20 +279,17 @@ export function EventPanel({ patientId }: Props) {
         </section>
       )}
 
-      {/* ── Connection notices ────────────────────────────────────────────── */}
       {connectionNotices.length > 0 && (
         <section>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
             Connection notices
           </h3>
-          <p className="mb-2 text-xs text-gray-400">
-            These are reading-gap notices, not health alerts.
-          </p>
           <div className="space-y-2" role="list">
             {connectionNotices.map((e) => (
               <AlertCard
                 key={e.event_id}
                 event={e}
+                patientName={patientName}
                 onAcknowledge={acknowledgeEvent}
                 onResolve={resolveEvent}
               />

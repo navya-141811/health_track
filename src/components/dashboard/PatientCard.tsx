@@ -33,16 +33,15 @@ export function PatientCard({
 
   return (
     <button
-      className={`w-full text-left rounded-xl border p-4 transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 ${
+      className={`w-full text-left rounded-xl border p-4 transition-all focus:outline-none focus:ring-2 focus:ring-sky-400 ${
         isSelected
-          ? 'border-brand-500 bg-brand-50 shadow-md'
-          : 'border-gray-200 bg-white hover:border-brand-300 hover:shadow-sm'
+          ? 'border-sky-400 bg-sky-50 shadow-sm'
+          : 'border-gray-200 bg-white hover:border-sky-200 hover:shadow-sm'
       }`}
       onClick={onSelect}
       aria-pressed={isSelected}
       aria-label={`Select patient ${patient.name}`}
     >
-      {/* Header row */}
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-gray-900">{patient.name}</p>
@@ -51,7 +50,6 @@ export function PatientCard({
         <FreshnessStatusBadge state={freshnessState} />
       </div>
 
-      {/* Vital readings */}
       <div className="mt-3 grid grid-cols-3 gap-1.5">
         <MetricTile
           label="Heart rate"
@@ -96,15 +94,12 @@ export function PatientCard({
         />
       </div>
 
-      {/* Footer */}
       <div className="mt-3 flex items-center justify-between">
-        <span className="text-xs text-gray-400 italic">Synthetic data</span>
+        <span className="text-xs text-gray-400 italic">Synthetic</span>
         {openCount > 0 && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-              urgentCount > 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-            }`}
-          >
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+            urgentCount > 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+          }`}>
             {openCount} alert{openCount > 1 ? 's' : ''}
           </span>
         )}

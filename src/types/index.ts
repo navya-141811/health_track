@@ -1,3 +1,13 @@
+// ─── Caregiver ───────────────────────────────────────────────────────────────
+
+export interface CaregiverAccount {
+  id: string
+  username: string
+  password: string
+  displayName: string
+  role: string
+}
+
 // ─── Patient ─────────────────────────────────────────────────────────────────
 
 /**

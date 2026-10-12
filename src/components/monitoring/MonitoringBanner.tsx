@@ -33,21 +33,20 @@ export function MonitoringBanner({ freshnessState, patientName }: Props) {
   const { status, last_reading_at } = freshnessState
   const elapsed = last_reading_at ? now - new Date(last_reading_at).getTime() : null
 
-  // Border and dot colour
   const borderClass =
-    status === 'stale' ? 'border-amber-200 bg-amber-50' :
-    status === 'paused' ? 'border-gray-200 bg-gray-50' :
+    status === 'stale'  ? 'border-amber-200 bg-amber-50' :
+    status === 'paused' ? 'border-gray-200 bg-gray-50'   :
     'border-gray-200 bg-white'
 
   const dotClass =
-    status === 'fresh' ? 'bg-green-500' :
-    status === 'stale' ? 'bg-amber-500' :
-    'bg-gray-400'
+    status === 'fresh'  ? 'bg-green-500 animate-pulse' :
+    status === 'stale'  ? 'bg-amber-500' :
+    'bg-gray-300'
 
   const stateLabel =
-    status === 'fresh' ? 'Receiving readings' :
-    status === 'stale' ? 'Readings stopped' :
-    status === 'paused' ? 'Simulation paused' :
+    status === 'fresh'  ? 'Receiving readings' :
+    status === 'stale'  ? 'Readings stopped'   :
+    status === 'paused' ? 'Simulation paused'  :
     'Waiting to start'
 
   return (
@@ -57,7 +56,6 @@ export function MonitoringBanner({ freshnessState, patientName }: Props) {
       className={`rounded-xl border px-4 py-3 ${borderClass}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Patient name + state */}
         <div className="flex items-center gap-3">
           <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${dotClass}`} />
           <div>
@@ -68,13 +66,10 @@ export function MonitoringBanner({ freshnessState, patientName }: Props) {
           </div>
         </div>
 
-        {/* Last reading time */}
         <div className="text-right">
           <p className="text-xs text-gray-400">Last reading</p>
           <p className="text-sm font-medium text-gray-700">
-            {last_reading_at
-              ? new Date(last_reading_at).toLocaleTimeString()
-              : '—'}
+            {last_reading_at ? new Date(last_reading_at).toLocaleTimeString() : '—'}
           </p>
           {elapsed !== null && elapsed > 2000 && (
             <p className={`text-xs ${status === 'stale' ? 'text-amber-600' : 'text-gray-400'}`}>
@@ -84,16 +79,9 @@ export function MonitoringBanner({ freshnessState, patientName }: Props) {
         </div>
       </div>
 
-      {/* Contextual messages — only when needed */}
       {status === 'stale' && (
         <p className="mt-2 text-xs text-amber-700 border-t border-amber-100 pt-2">
-          No new readings are arriving. If the simulation is running, try the "Readings stop arriving" scenario.
-          This notice is separate from any vital-sign alert.
-        </p>
-      )}
-      {status === 'paused' && (
-        <p className="mt-2 text-xs text-gray-500 border-t border-gray-100 pt-2">
-          Simulation is paused. Press <strong>Resume</strong> to continue.
+          No new readings arriving. Check the device connection.
         </p>
       )}
     </div>

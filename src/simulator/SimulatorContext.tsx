@@ -23,6 +23,7 @@ import { PATIENTS, PATIENTS_BY_ID } from '../data/patients'
 import type {
   CareEvent,
   FreshnessState,
+  PatientProfile,
   ScenarioId,
   SimulatorStatus,
   VitalReading,
@@ -53,6 +54,10 @@ export interface SimulatorContextValue {
   readingHistories: Record<string, VitalReading[]>
   events: CareEvent[]
   freshnessStates: Record<string, FreshnessState>
+
+  // Dynamic patient management
+  addPatient: (patient: PatientProfile) => void
+  dynamicPatients: PatientProfile[]
 
   // Event actions
   acknowledgeEvent: (event_id: string) => void
@@ -94,11 +99,14 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
   const [events, setEvents] = useState<CareEvent[]>([])
   const [freshnessStates, setFreshnessStates] = useState<Record<string, FreshnessState>>({})
   const [staleTimeoutMs, setStaleTimeoutMsState] = useState(DEFAULT_STALE_TIMEOUT_MS)
+  const [dynamicPatients, setDynamicPatients] = useState<PatientProfile[]>([])
 
   // ── Stable store/engine refs (never recreated) ────────────────────────────
   const eventStoreRef = useRef(new EventStore())
   const historyStoreRef = useRef(new ReadingHistoryStore())
   const ruleEngineRef = useRef(new RuleEngine(eventStoreRef.current))
+  /** Mutable map of all patients (static + dynamic) for rule evaluation. */
+  const patientsMapRef = useRef<Record<string, PatientProfile>>({ ...PATIENTS_BY_ID })
 
   const freshnessMonitorRef = useRef(
     new FreshnessMonitor(eventStoreRef.current, {
@@ -127,7 +135,7 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
           freshnessMonitorRef.current.onReadingReceived(reading.patient_id, reading.timestamp)
 
           // Rule evaluation
-          const patient = PATIENTS_BY_ID[reading.patient_id]
+          const patient = patientsMapRef.current[reading.patient_id]
           if (patient) {
             ruleEngineRef.current.evaluate(reading, patient)
             setEvents([...eventStoreRef.current.getAll()])
@@ -144,12 +152,14 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
     ),
   )
 
-  // ── Mount: register patients and start freshness loop ─────────────────────
+  // ── Mount: register patients, start freshness loop, auto-start engine ────
   useEffect(() => {
     for (const p of PATIENTS) {
       freshnessMonitorRef.current.registerPatient(p.patient_id)
     }
     freshnessMonitorRef.current.start()
+    // Auto-start monitoring immediately — no manual Start button needed
+    engineRef.current.start()
 
     return () => {
       freshnessMonitorRef.current.stop()
@@ -231,6 +241,22 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
     setStaleTimeoutMsState(ms)
   }, [])
 
+  const addPatient = useCallback((patient: PatientProfile) => {
+    setDynamicPatients((prev) => {
+      if (prev.some((p) => p.patient_id === patient.patient_id)) return prev
+      return [...prev, patient]
+    })
+    // Keep the mutable map in sync for rule evaluation
+    patientsMapRef.current[patient.patient_id] = patient
+    freshnessMonitorRef.current.registerPatient(patient.patient_id)
+    engineRef.current.setPatient(patient.patient_id)
+    setPatientId(patient.patient_id)
+    // Auto-start if not already running
+    if (engineRef.current.getStatus() !== 'running') {
+      engineRef.current.start()
+    }
+  }, [])
+
 
   const value = useMemo<SimulatorContextValue>(
     () => ({
@@ -256,12 +282,15 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
       resolveEvent,
       staleTimeoutMs,
       setStaleTimeoutMs,
+      addPatient,
+      dynamicPatients,
     }),
     [
       status, scenarioId, patientId, tickInterval, speedMultiplier, tickPosition,
       start, pause, resume, reset, setScenario, setPatient, setTickInterval, setSpeed,
       triggerManualAssistance, readingHistories, events, freshnessStates,
       acknowledgeEvent, resolveEvent, staleTimeoutMs, setStaleTimeoutMs,
+      addPatient, dynamicPatients,
     ],
   )
 

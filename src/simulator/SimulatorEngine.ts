@@ -17,11 +17,19 @@
  */
 import { nanoid } from './nanoid'
 import { SCENARIOS_BY_ID } from '../data/scenarios'
+import { PATIENT_1_DATASET, PATIENT_2_DATASET } from '../data/patientDatasets'
 import type {
   ScenarioId,
+  ScenarioStep,
   SimulatorStatus,
   VitalReading,
 } from '../types'
+
+/** Hardcoded datasets keyed by patient_id. Overrides scenario when present. */
+const PATIENT_DATASETS: Record<string, ScenarioStep[]> = {
+  'patient-001': PATIENT_1_DATASET,
+  'patient-002': PATIENT_2_DATASET,
+}
 
 export interface SimulatorCallbacks {
   onReading: (reading: VitalReading) => void
@@ -112,11 +120,12 @@ export class SimulatorEngine {
     this._setStatus('idle')
   }
 
-  /** Change patient without resetting position. Restarts if running. */
+  /** Change patient and reset to tick 0. Restarts if running. */
   setPatient(patient_id: string): void {
     const wasRunning = this.status === 'running'
     if (wasRunning) this._clearTimer()
     this.patient_id = patient_id
+    this.tick_position = 0  // always restart from tick 0 for the new patient
     if (wasRunning) this._scheduleNextTick()
   }
 
@@ -176,10 +185,22 @@ export class SimulatorEngine {
       return
     }
 
-    const scenario = SCENARIOS_BY_ID[this.scenario_id]
-    if (!scenario) return
+    // Use hardcoded patient dataset if available, otherwise fall back to scenario
+    const dataset = PATIENT_DATASETS[this.patient_id]
+    let steps: ScenarioStep[]
+    let loopLength: number
 
-    const step = scenario.steps[this.tick_position % scenario.loop_length]
+    if (dataset) {
+      steps = dataset
+      loopLength = dataset.length
+    } else {
+      const scenario = SCENARIOS_BY_ID[this.scenario_id]
+      if (!scenario) return
+      steps = scenario.steps
+      loopLength = scenario.loop_length
+    }
+
+    const step = steps[this.tick_position % loopLength]
     const currentPosition = this.tick_position
     const isGap = step.gap === true
 
@@ -198,6 +219,6 @@ export class SimulatorEngine {
     }
 
     this.callbacks.onTick(currentPosition, isGap)
-    this.tick_position = (this.tick_position + 1) % scenario.loop_length
+    this.tick_position = (this.tick_position + 1) % loopLength
   }
 }
