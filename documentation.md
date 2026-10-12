@@ -12,6 +12,7 @@ This guide merges the product goals and implementation details into one CarePuls
 
 - One caregiver can monitor two fictional patients: Eleanor Vance (`patient-001`) and Marcus Webb (`patient-002`).
 - The caregiver can select a patient and a deterministic scenario, start, pause, resume, reset, adjust simulation speed, and configure the stale-data timeout.
+- Initial patient setup includes a questionnaire that generates an editable suggested profile and explains the reasoning behind its suggestions. Caregiver or clinician-provided thresholds take precedence; questionnaire output and preset values are not clinical recommendations.
 - Readings update the dashboard and two separate time-series charts: heart rate and temperature. Keep the units and axes separate.
 - Per-patient thresholds and baselines appear as reference lines and are used by the rule engine.
 - When a threshold rule persists for three consecutive readings, create an explainable `vital_sign` event. Two consecutive crossings alone must not create one.
@@ -62,10 +63,13 @@ src/
   App.tsx                            Page composition and selected patient
   main.tsx                           React entry point
 ```
-
 Keep rules and state transitions in engine/store modules rather than embedding them in React components. Components should render state and dispatch explicit user actions.
 
 ## 4. Domain model
+
+### Initial patient questionnaire
+
+During initial setup, collect the questionnaire responses needed to propose a patient profile and explain how the answers informed the suggested starting values. Keep the generated profile editable. Explicit caregiver- or clinician-provided thresholds override questionnaire suggestions. Label all generated and preset values as demonstration settings, not clinical recommendations. The questionnaire's exact questions, scoring method, and supported profile fields remain implementation decisions; do not imply clinical validation.
 
 The exact TypeScript names can follow the existing codebase, but the model should express these concepts:
 
@@ -300,7 +304,7 @@ The source record says tests and production build passed, but rerun them against
 - Backend services, accounts, multi-caregiver sessions, or database persistence.
 - Browser push notifications, Telegram, SMS, or notification delivery guarantees.
 - Automatic escalation timers and real emergency-service calls.
-- Onboarding questionnaires, generated patient profiles, notification retries, and an SOS escalation chain.
+- Notification retries and an SOS escalation chain.
 - Clinical recommendations, diagnosis, validated medical thresholds, or real patient monitoring.
 - PWA installation/service worker.
 
