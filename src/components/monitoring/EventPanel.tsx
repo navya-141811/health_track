@@ -126,8 +126,8 @@ function AlertCard({
           : 'bg-orange-50'
 
   const statusLabel =
-    isResolved ? 'Closed' :
-    isAcknowledged ? 'Seen' :
+    isResolved ? 'Resolved' :
+    isAcknowledged ? 'Acknowledged' :
     event.category === 'data_quality' ? 'Active' :
     'Needs attention'
 
@@ -164,13 +164,13 @@ function AlertCard({
           <div className="flex gap-2">
             {!isAcknowledged && event.category !== 'data_quality' && (
               <ActionButton
-                label="Mark as seen"
+                label="Acknowledge"
                 onClick={() => onAcknowledge(event.event_id)}
                 colour="yellow"
               />
             )}
             <ActionButton
-              label="Close"
+              label="Resolve"
               onClick={() => onResolve(event.event_id)}
               colour="gray"
             />

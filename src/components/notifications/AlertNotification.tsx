@@ -18,15 +18,32 @@ import type { CareEvent } from '../../types'
 
 // ── Emergency Banner ──────────────────────────────────────────────────────────
 
+// ── Emergency Banner ──────────────────────────────────────────────────────────
+
 function EmergencyBanner({
   events,
+  onAcknowledge,
+  onResolve,
   onDismiss,
 }: {
   events: CareEvent[]
+  onAcknowledge: (eventIds: string[]) => void
+  onResolve: (eventIds: string[]) => void
   onDismiss: () => void
 }) {
   const stopAlarm = () => {
     AlarmSound.stop()
+    onDismiss()
+  }
+
+  const handleAcknowledge = () => {
+    AlarmSound.stop()
+    onAcknowledge(events.map((e) => e.event_id))
+  }
+
+  const handleResolve = () => {
+    AlarmSound.stop()
+    onResolve(events.map((e) => e.event_id))
     onDismiss()
   }
 
@@ -70,12 +87,26 @@ function EmergencyBanner({
             </p>
           </div>
         </div>
-        <button
-          onClick={stopAlarm}
-          className="flex-shrink-0 rounded-lg border border-red-300 bg-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-300 transition-colors"
-        >
-          Stop Alarm
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={handleAcknowledge}
+            className="rounded-lg bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-3 py-1.5 text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-300 shadow-sm"
+          >
+            Acknowledge
+          </button>
+          <button
+            onClick={handleResolve}
+            className="rounded-lg bg-white hover:bg-gray-100 text-red-700 px-3 py-1.5 text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-white shadow-sm"
+          >
+            Resolve Alert
+          </button>
+          <button
+            onClick={stopAlarm}
+            className="rounded-lg border border-red-300 bg-red-700/80 px-3 py-1.5 text-xs font-semibold hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-300 transition-colors"
+          >
+            Mute Alarm
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -85,11 +116,22 @@ function EmergencyBanner({
 
 interface Toast {
   id: string
+  eventId: string
   message: string
   detail: string
 }
 
-function AbnormalToast({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
+function AbnormalToast({
+  toast,
+  onAcknowledge,
+  onResolve,
+  onDismiss,
+}: {
+  toast: Toast
+  onAcknowledge: (eventId: string) => void
+  onResolve: (eventId: string) => void
+  onDismiss: (id: string) => void
+}) {
   useEffect(() => {
     const timer = setTimeout(() => onDismiss(toast.id), 12000)
     return () => clearTimeout(timer)
@@ -111,6 +153,26 @@ function AbnormalToast({ toast, onDismiss }: { toast: Toast; onDismiss: (id: str
       <div className="flex-1">
         <p className="text-sm font-semibold text-orange-800">{toast.message}</p>
         <p className="text-xs text-orange-600 mt-0.5">{toast.detail}</p>
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => {
+              onAcknowledge(toast.eventId)
+              onDismiss(toast.id)
+            }}
+            className="rounded border border-orange-300 bg-white px-2.5 py-0.5 text-xs font-semibold text-orange-700 hover:bg-orange-100 transition-colors"
+          >
+            Acknowledge
+          </button>
+          <button
+            onClick={() => {
+              onResolve(toast.eventId)
+              onDismiss(toast.id)
+            }}
+            className="rounded border border-orange-400 bg-orange-600 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-orange-700 transition-colors"
+          >
+            Resolve
+          </button>
+        </div>
       </div>
       <button
         onClick={() => onDismiss(toast.id)}
@@ -124,7 +186,7 @@ function AbnormalToast({ toast, onDismiss }: { toast: Toast; onDismiss: (id: str
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function AlertNotification() {
-  const { events } = useSimulator()
+  const { events, acknowledgeEvent, resolveEvent } = useSimulator()
   const seenIdsRef = useRef<Set<string>>(new Set())
 
   const [emergencyEvents, setEmergencyEvents] = useState<CareEvent[]>([])
@@ -154,6 +216,7 @@ export function AlertNotification() {
         }
         const toast: Toast = {
           id: `toast-${event.event_id}`,
+          eventId: event.event_id,
           message: labels[rk] ?? 'Reading outside normal range',
           detail: event.explanation.replace(' Simulated reading — not a medical diagnosis.', ''),
         }
@@ -180,16 +243,35 @@ export function AlertNotification() {
   const dismissToast = (id: string) =>
     setToasts((prev) => prev.filter((t) => t.id !== id))
 
+  const handleAcknowledgeEmergency = (eventIds: string[]) => {
+    eventIds.forEach((id) => acknowledgeEvent(id))
+  }
+
+  const handleResolveEmergency = (eventIds: string[]) => {
+    eventIds.forEach((id) => resolveEvent(id))
+  }
+
   return (
     <>
       {/* Emergency banner */}
-      <EmergencyBanner events={emergencyEvents} onDismiss={dismissEmergency} />
+      <EmergencyBanner
+        events={emergencyEvents}
+        onAcknowledge={handleAcknowledgeEmergency}
+        onResolve={handleResolveEmergency}
+        onDismiss={dismissEmergency}
+      />
 
       {/* Abnormal toasts */}
       {toasts.length > 0 && (
         <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2">
           {toasts.map((t) => (
-            <AbnormalToast key={t.id} toast={t} onDismiss={dismissToast} />
+            <AbnormalToast
+              key={t.id}
+              toast={t}
+              onAcknowledge={acknowledgeEvent}
+              onResolve={resolveEvent}
+              onDismiss={dismissToast}
+            />
           ))}
         </div>
       )}

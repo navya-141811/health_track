@@ -2,14 +2,17 @@
  * CarePulse test suite
  *
  * Covers:
- *  1. Scenario determinism
- *  2. SimulatorEngine tick behaviour
- *  3. Pause / resume -- no overlapping timers, no tick skip
- *  4. Reset -- returns to tick 0
- *  5. Patient separation
- *  6. Data-freshness detection (FreshnessMonitor)
- *  7. EventStore category isolation
- *  8. RuleEngine persistence (S04: brief crossing does not fire)
+ *  1.  Scenario determinism — same tick always produces same values
+ *  2.  Scenario alert timing — which tick each alert fires on
+ *  3.  Multi-metric alerts — temp and SpO2 fire independently of HR
+ *  4.  Re-alert after resolve — second crossing fires new event after resolve
+ *  5.  SimulatorEngine tick behaviour
+ *  6.  Pause / resume — no overlapping timers, no tick skip
+ *  7.  Reset — returns to tick 0
+ *  8.  Patient separation — histories and events stay isolated
+ *  9.  Data-freshness detection (FreshnessMonitor)
+ *  10. EventStore category isolation
+ *  11. RuleEngine persistence (S04: brief crossing does not fire)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -17,12 +20,35 @@ import { SimulatorEngine } from '../simulator/SimulatorEngine'
 import { FreshnessMonitor } from '../engine/FreshnessMonitor'
 import { EventStore } from '../store/EventStore'
 import { ReadingHistoryStore } from '../store/ReadingHistoryStore'
-import { RuleEngine } from '../engine/RuleEngine'
+import { RuleEngine, PERSISTENCE_TICKS } from '../engine/RuleEngine'
 import { SCENARIOS_BY_ID } from '../data/scenarios'
 import { PATIENTS_BY_ID } from '../data/patients'
 import type { VitalReading, SimulatorStatus, FreshnessState } from '../types'
 
-// ── Typed capture helpers (no vi.fn generic syntax that changed in TS 6) ──────
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a VitalReading with all required fields.
+ * spo2_pct defaults to 97 (well within normal range) unless overridden.
+ */
+function makeReading(
+  hr: number,
+  temp: number,
+  spo2 = 97,
+  pid = 'patient-001',
+  scenario_id: VitalReading['scenario_id'] = 'S01',
+): VitalReading {
+  return {
+    reading_id: Math.random().toString(36),
+    patient_id: pid,
+    timestamp: new Date().toISOString(),
+    heart_rate_bpm: hr,
+    temperature_c: temp,
+    spo2_pct: spo2,
+    source: 'synthetic',
+    scenario_id,
+  }
+}
 
 function makeReadingCapture() {
   const readings: VitalReading[] = []
@@ -79,11 +105,11 @@ function makeCallbacks() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Scenario determinism', () => {
-  it('S01 tick 0 always produces heart_rate_bpm=72, temperature_c=36.6', () => {
-    const s01 = SCENARIOS_BY_ID['S01']
-    const step = s01.steps[0]
+  it('S01 tick 0 always produces hr=72, temp=36.6, spo2=97', () => {
+    const step = SCENARIOS_BY_ID['S01'].steps[0]
     expect(step.heart_rate_bpm).toBe(72)
     expect(step.temperature_c).toBe(36.6)
+    expect(step.spo2_pct).toBe(97)
   })
 
   it('S07 ticks 3-9 are all gap ticks', () => {
@@ -107,28 +133,260 @@ describe('Scenario determinism', () => {
     }
   })
 
-  it('S03 tick 5 produces heart_rate_bpm above Eleanor threshold of 100', () => {
-    const s03 = SCENARIOS_BY_ID['S03']
-    const eleanor = PATIENTS_BY_ID['patient-001']
-    expect(s03.steps[5].heart_rate_bpm).toBeGreaterThan(eleanor.threshold_hr_upper)
+  it('S03 tick 5 is above Priya HR threshold of 100', () => {
+    const priya = PATIENTS_BY_ID['patient-001']
+    expect(SCENARIOS_BY_ID['S03'].steps[5].heart_rate_bpm).toBeGreaterThan(priya.threshold_hr_upper)
   })
 
-  it('same scenario + tick index produces the same values on repeated lookups', () => {
+  it('S02 tick 8 crosses all three thresholds for Priya', () => {
+    const priya = PATIENTS_BY_ID['patient-001']
+    const step = SCENARIOS_BY_ID['S02'].steps[8]
+    expect(step.heart_rate_bpm).toBeGreaterThan(priya.threshold_hr_upper)
+    expect(step.temperature_c).toBeGreaterThan(priya.threshold_temp_upper)
+    expect(step.spo2_pct).toBeLessThan(priya.threshold_spo2_lower)
+  })
+
+  it('repeated lookups of same scenario+tick produce identical values', () => {
     const s01 = SCENARIOS_BY_ID['S01']
-    const values = [0, 1, 2, 3, 4].map((i) => ({
-      hr: s01.steps[i % s01.loop_length].heart_rate_bpm,
-      temp: s01.steps[i % s01.loop_length].temperature_c,
-    }))
-    const values2 = [0, 1, 2, 3, 4].map((i) => ({
-      hr: s01.steps[i % s01.loop_length].heart_rate_bpm,
-      temp: s01.steps[i % s01.loop_length].temperature_c,
-    }))
-    expect(values).toEqual(values2)
+    const first  = [0,1,2].map((i) => s01.steps[i])
+    const second = [0,1,2].map((i) => s01.steps[i])
+    expect(first).toEqual(second)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. SimulatorEngine tick behaviour
+// 2. Scenario alert timing
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Scenario alert timing', () => {
+  it('S01 produces zero alerts across all ticks (all within range)', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+    const priya = PATIENTS_BY_ID['patient-001']
+    const s01 = SCENARIOS_BY_ID['S01']
+    for (const step of s01.steps) {
+      engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+    }
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(0)
+  })
+
+  it(`S03 HR alert fires exactly at tick ${PERSISTENCE_TICKS - 1 + 3} (3rd consecutive crossing)`, () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+    const priya = PATIENTS_BY_ID['patient-001']
+    const s03 = SCENARIOS_BY_ID['S03']
+
+    // Feed ticks 0-4 (only 2 above threshold at ticks 3,4)
+    for (let t = 0; t <= 4; t++) {
+      const step = s03.steps[t]
+      engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+    }
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(0) // not yet
+
+    // Tick 5 = 3rd consecutive → alert fires
+    const step5 = s03.steps[5]
+    engine.evaluate(makeReading(step5.heart_rate_bpm, step5.temperature_c, step5.spo2_pct), priya)
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
+    expect(store.getVitalSignEvents('patient-001')[0].rule_key).toBe('patient-001:hr_upper')
+  })
+
+  it('S04 produces zero alerts (only 2 consecutive crossings)', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+    const priya = PATIENTS_BY_ID['patient-001']
+    const s04 = SCENARIOS_BY_ID['S04']
+    for (const step of s04.steps) {
+      engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+    }
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(0)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. Multi-metric alerts — all three vitals fire independently
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Multi-metric alerts', () => {
+  const priya = PATIENTS_BY_ID['patient-001']
+  // Priya's thresholds: HR>100, Temp>37.8, SpO2<93
+
+  it('HR and SpO2 both cross → two separate events with different rule_keys', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+
+    // 3 readings: HR above 100 AND SpO2 below 93
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(103, 37.0, 91), priya) // HR high, SpO2 low
+    }
+
+    const events = store.getVitalSignEvents('patient-001')
+    expect(events).toHaveLength(2)
+    const keys = events.map((e) => e.rule_key).sort()
+    expect(keys).toContain('patient-001:hr_upper')
+    expect(keys).toContain('patient-001:spo2_lower')
+  })
+
+  it('all three metrics crossing simultaneously → three separate events', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+
+    // 3 readings: HR above 100, Temp above 37.8, SpO2 below 93
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(105, 38.0, 90), priya)
+    }
+
+    const events = store.getVitalSignEvents('patient-001')
+    expect(events).toHaveLength(3)
+    const keys = events.map((e) => e.rule_key).sort()
+    expect(keys).toContain('patient-001:hr_upper')
+    expect(keys).toContain('patient-001:temp_upper')
+    expect(keys).toContain('patient-001:spo2_lower')
+  })
+
+  it('only temperature crossing → only temperature event, no HR or SpO2 event', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(80, 38.2, 96), priya) // only temp is above threshold
+    }
+
+    const events = store.getVitalSignEvents('patient-001')
+    expect(events).toHaveLength(1)
+    expect(events[0].rule_key).toBe('patient-001:temp_upper')
+  })
+
+  it('only SpO2 dropping → only SpO2 event', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(75, 36.7, 91), priya) // only SpO2 below threshold
+    }
+
+    const events = store.getVitalSignEvents('patient-001')
+    expect(events).toHaveLength(1)
+    expect(events[0].rule_key).toBe('patient-001:spo2_lower')
+  })
+
+  it('S02 scenario produces HR, Temp, and SpO2 alerts all at tick 10', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+    const s02 = SCENARIOS_BY_ID['S02']
+
+    for (const step of s02.steps) {
+      if (!step.gap) {
+        engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+      }
+    }
+
+    const events = store.getVitalSignEvents('patient-001')
+    const keys = events.map((e) => e.rule_key)
+    expect(keys).toContain('patient-001:hr_upper')
+    expect(keys).toContain('patient-001:temp_upper')
+    expect(keys).toContain('patient-001:spo2_lower')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Re-alert after resolve — second crossing fires new alert
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Re-alert after resolve (rise-fall-rise)', () => {
+  const priya = PATIENTS_BY_ID['patient-001']
+
+  it('second crossing fires a NEW event after caregiver resolves the first', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+
+    // ── First crossing: 3 ticks above HR threshold ─────────────────────
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(105, 37.0, 96), priya)
+    }
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
+    const firstEvent = store.getVitalSignEvents('patient-001')[0]
+
+    // ── Recovery: drops below threshold ───────────────────────────────
+    engine.evaluate(makeReading(85, 36.8, 97), priya)
+    engine.evaluate(makeReading(80, 36.7, 97), priya)
+
+    // ── Caregiver resolves the first event ────────────────────────────
+    store.resolveEvent(firstEvent.event_id)
+    expect(store.getById(firstEvent.event_id)?.status).toBe('resolved')
+
+    // ── Second crossing: 3 more ticks above threshold ─────────────────
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(108, 37.2, 95), priya)
+    }
+
+    const allEvents = store.getVitalSignEvents('patient-001')
+    const openEvents = allEvents.filter((e) => e.status !== 'resolved')
+    // A brand new event should have fired
+    expect(openEvents).toHaveLength(1)
+    expect(openEvents[0].event_id).not.toBe(firstEvent.event_id)
+    expect(openEvents[0].rule_key).toBe('patient-001:hr_upper')
+  })
+
+  it('second crossing does NOT fire a new event if the first is still open (unresolved)', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+
+    // First crossing
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(105, 37.0, 96), priya)
+    }
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
+
+    // Recovery — condition clears
+    engine.evaluate(makeReading(85, 36.8, 97), priya)
+    engine.evaluate(makeReading(80, 36.7, 97), priya)
+
+    // Second crossing — but first event is STILL OPEN (not resolved)
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(108, 37.2, 95), priya)
+    }
+
+    // Still only 1 event — no duplicate while first is open
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
+  })
+
+  it('S03 scenario: first alert fires at tick 5, second fires at tick 10 after resolve', () => {
+    const store = new EventStore()
+    const engine = new RuleEngine(store)
+    const s03 = SCENARIOS_BY_ID['S03']
+
+    // Feed ticks 0-5 → first alert fires at tick 5
+    for (let t = 0; t <= 5; t++) {
+      const step = s03.steps[t]
+      engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+    }
+    expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
+    const firstAlert = store.getVitalSignEvents('patient-001')[0]
+
+    // Ticks 6-7 recovery
+    for (let t = 6; t <= 7; t++) {
+      const step = s03.steps[t]
+      engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+    }
+
+    // Caregiver resolves first alert
+    store.resolveEvent(firstAlert.event_id)
+
+    // Ticks 8-10: second crossing → second alert fires at tick 10
+    for (let t = 8; t <= 10; t++) {
+      const step = s03.steps[t]
+      engine.evaluate(makeReading(step.heart_rate_bpm, step.temperature_c, step.spo2_pct), priya)
+    }
+
+    const allEvents = store.getVitalSignEvents('patient-001')
+    const openEvents = allEvents.filter((e) => e.status !== 'resolved')
+    expect(openEvents).toHaveLength(1)
+    expect(openEvents[0].event_id).not.toBe(firstAlert.event_id)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. SimulatorEngine tick behaviour
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('SimulatorEngine tick behaviour', () => {
@@ -151,6 +409,18 @@ describe('SimulatorEngine tick behaviour', () => {
     engine.start()
     vi.advanceTimersByTime(1000)
     expect(readings.callCount).toBe(1)
+  })
+
+  it('emitted readings include spo2_pct', () => {
+    const { callbacks, readings } = makeCallbacks()
+    const engine = new SimulatorEngine(
+      { patient_id: 'patient-001', scenario_id: 'S01', tick_interval_ms: 500 },
+      callbacks,
+    )
+    engine.start()
+    vi.advanceTimersByTime(500)
+    expect(typeof readings.calls[0].spo2_pct).toBe('number')
+    expect(readings.calls[0].spo2_pct).toBeGreaterThan(0)
   })
 
   it('reading source is always "synthetic"', () => {
@@ -184,12 +454,11 @@ describe('SimulatorEngine tick behaviour', () => {
       callbacks,
     )
     engine.start()
-    // 10 ticks: ticks 0,1,2 produce readings; ticks 3-9 are gaps
     vi.advanceTimersByTime(100 * 10)
-    expect(readings.callCount).toBe(3)
+    expect(readings.callCount).toBe(3) // ticks 0,1,2 only
   })
 
-  it('S07 gap ticks still fire onTick with isGap=true', () => {
+  it('S07 gap ticks fire onTick with isGap=true', () => {
     const { callbacks, ticks } = makeCallbacks()
     const engine = new SimulatorEngine(
       { patient_id: 'patient-001', scenario_id: 'S07', tick_interval_ms: 100 },
@@ -198,7 +467,7 @@ describe('SimulatorEngine tick behaviour', () => {
     engine.start()
     vi.advanceTimersByTime(100 * 10)
     const gapTicks = ticks.calls.filter((t) => t.isGap === true)
-    expect(gapTicks.length).toBe(7) // ticks 3-9
+    expect(gapTicks.length).toBe(7)
   })
 
   it('speed multiplier halves the effective interval', () => {
@@ -212,7 +481,7 @@ describe('SimulatorEngine tick behaviour', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Pause / resume
+// 6. Pause / resume
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('SimulatorEngine pause / resume', () => {
@@ -226,9 +495,9 @@ describe('SimulatorEngine pause / resume', () => {
       callbacks,
     )
     engine.start()
-    vi.advanceTimersByTime(500) // 1 reading
+    vi.advanceTimersByTime(500)
     engine.pause()
-    vi.advanceTimersByTime(2000) // paused -- no more readings
+    vi.advanceTimersByTime(2000)
     expect(readings.callCount).toBe(1)
   })
 
@@ -242,14 +511,14 @@ describe('SimulatorEngine pause / resume', () => {
     vi.advanceTimersByTime(1500) // 3 ticks
     const posAfter3 = engine.getTickPosition()
     engine.pause()
-    vi.advanceTimersByTime(5000) // paused; no change
+    vi.advanceTimersByTime(5000)
     expect(engine.getTickPosition()).toBe(posAfter3)
     engine.resume()
-    vi.advanceTimersByTime(500) // 1 more tick
+    vi.advanceTimersByTime(500)
     expect(readings.callCount).toBe(4)
   })
 
-  it('pause then resume does not create a second timer (no double-firing)', () => {
+  it('pause then resume does not create a second timer', () => {
     const { callbacks, readings } = makeCallbacks()
     const engine = new SimulatorEngine(
       { patient_id: 'patient-001', scenario_id: 'S01', tick_interval_ms: 500 },
@@ -260,54 +529,50 @@ describe('SimulatorEngine pause / resume', () => {
     engine.pause()
     engine.resume()
     vi.advanceTimersByTime(500)
-    // Exactly 2 readings: 1 before pause + 1 after resume
     expect(readings.callCount).toBe(2)
   })
 
-  it('calling start() while running is a no-op (no second timer)', () => {
+  it('calling start() while running is a no-op', () => {
     const { callbacks, readings } = makeCallbacks()
     const engine = new SimulatorEngine(
       { patient_id: 'patient-001', scenario_id: 'S01', tick_interval_ms: 500 },
       callbacks,
     )
     engine.start()
-    engine.start() // second call ignored
+    engine.start()
     vi.advanceTimersByTime(500)
     expect(readings.callCount).toBe(1)
   })
 
-  it('status transitions correctly: idle -> running -> paused -> running', () => {
+  it('status transitions: idle → running → paused → running', () => {
     const { callbacks } = makeCallbacks()
     const engine = new SimulatorEngine(
       { patient_id: 'patient-001', scenario_id: 'S01', tick_interval_ms: 500 },
       callbacks,
     )
     expect(engine.getStatus()).toBe('idle')
-    engine.start()
-    expect(engine.getStatus()).toBe('running')
-    engine.pause()
-    expect(engine.getStatus()).toBe('paused')
-    engine.resume()
-    expect(engine.getStatus()).toBe('running')
+    engine.start();  expect(engine.getStatus()).toBe('running')
+    engine.pause();  expect(engine.getStatus()).toBe('paused')
+    engine.resume(); expect(engine.getStatus()).toBe('running')
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. Reset
+// 7. Reset
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('SimulatorEngine reset', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => { vi.useRealTimers(); vi.clearAllMocks() })
 
-  it('reset stops the engine and returns tick_position to 0', () => {
+  it('reset returns to idle and tick_position 0', () => {
     const { callbacks } = makeCallbacks()
     const engine = new SimulatorEngine(
       { patient_id: 'patient-001', scenario_id: 'S01', tick_interval_ms: 500 },
       callbacks,
     )
     engine.start()
-    vi.advanceTimersByTime(1500) // 3 ticks
+    vi.advanceTimersByTime(1500)
     engine.reset()
     expect(engine.getStatus()).toBe('idle')
     expect(engine.getTickPosition()).toBe(0)
@@ -322,12 +587,12 @@ describe('SimulatorEngine reset', () => {
     engine.start()
     vi.advanceTimersByTime(500)
     engine.reset()
-    const countBeforeAdvance = readings.callCount
+    const count = readings.callCount
     vi.advanceTimersByTime(2000)
-    expect(readings.callCount).toBe(countBeforeAdvance) // no new readings
+    expect(readings.callCount).toBe(count)
   })
 
-  it('after reset, start() fires from tick 0 (S01 first reading = hr:72, temp:36.6)', () => {
+  it('after reset, start() fires S01 tick 0 (hr=72, temp=36.6, spo2=97)', () => {
     const { callbacks, readings } = makeCallbacks()
     const engine = new SimulatorEngine(
       { patient_id: 'patient-001', scenario_id: 'S01', tick_interval_ms: 500 },
@@ -338,49 +603,41 @@ describe('SimulatorEngine reset', () => {
     engine.reset()
     engine.start()
     vi.advanceTimersByTime(500)
-    const lastReading = readings.calls[readings.callCount - 1]
-    expect(lastReading.heart_rate_bpm).toBe(72)
-    expect(lastReading.temperature_c).toBe(36.6)
+    const last = readings.calls[readings.callCount - 1]
+    expect(last.heart_rate_bpm).toBe(72)
+    expect(last.temperature_c).toBe(36.6)
+    expect(last.spo2_pct).toBe(97)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Patient separation
+// 8. Patient separation
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Patient separation', () => {
   it('ReadingHistoryStore keeps patient histories separate', () => {
     const store = new ReadingHistoryStore()
-    const r1: VitalReading = {
-      reading_id: 'r1', patient_id: 'patient-001', timestamp: new Date().toISOString(),
-      heart_rate_bpm: 72, temperature_c: 36.6, spo2_pct: 97, source: 'synthetic', scenario_id: 'S01',
-    }
-    const r2: VitalReading = {
-      reading_id: 'r2', patient_id: 'patient-002', timestamp: new Date().toISOString(),
-      heart_rate_bpm: 68, temperature_c: 36.8, spo2_pct: 97, source: 'synthetic', scenario_id: 'S01',
-    }
-    store.addReading(r1)
-    store.addReading(r2)
+    store.addReading(makeReading(72, 36.6, 97, 'patient-001', 'S01'))
+    store.addReading(makeReading(68, 36.8, 96, 'patient-002', 'S01'))
     expect(store.getHistory('patient-001')).toHaveLength(1)
     expect(store.getHistory('patient-002')).toHaveLength(1)
     expect(store.getHistory('patient-001')[0].heart_rate_bpm).toBe(72)
     expect(store.getHistory('patient-002')[0].heart_rate_bpm).toBe(68)
   })
 
-  it('EventStore.getVitalSignEvents returns only events for that patient', () => {
+  it('getVitalSignEvents returns only events for that patient', () => {
     const store = new EventStore()
-    const r: VitalReading = {
-      reading_id: 'r1', patient_id: 'patient-001', timestamp: new Date().toISOString(),
-      heart_rate_bpm: 72, temperature_c: 36.6, spo2_pct: 97, source: 'synthetic', scenario_id: 'S01',
-    }
+    const r1 = makeReading(72, 36.6, 97, 'patient-001', 'S01')
+    const r2 = makeReading(68, 36.8, 96, 'patient-002', 'S01')
     store.createVitalSignEvent({
-      patient_id: 'patient-001', reading: r, explanation: 'test',
+      patient_id: 'patient-001', reading: r1, explanation: 'e1',
       priority: 'review', triggering_value: 72, configured_limit: 100,
+      rule_key: 'patient-001:hr_upper',
     })
     store.createVitalSignEvent({
-      patient_id: 'patient-002',
-      reading: { ...r, patient_id: 'patient-002', reading_id: 'r2' },
-      explanation: 'test2', priority: 'urgent', triggering_value: 110, configured_limit: 105,
+      patient_id: 'patient-002', reading: r2, explanation: 'e2',
+      priority: 'urgent', triggering_value: 110, configured_limit: 105,
+      rule_key: 'patient-002:hr_upper',
     })
     expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
     expect(store.getVitalSignEvents('patient-002')).toHaveLength(1)
@@ -388,13 +645,10 @@ describe('Patient separation', () => {
 
   it('clearByPatient only removes that patient\'s events', () => {
     const store = new EventStore()
-    const r: VitalReading = {
-      reading_id: 'r1', patient_id: 'patient-001', timestamp: new Date().toISOString(),
-      heart_rate_bpm: 72, temperature_c: 36.6, spo2_pct: 97, source: 'synthetic', scenario_id: 'S01',
-    }
     store.createVitalSignEvent({
-      patient_id: 'patient-001', reading: r, explanation: 'e1',
-      priority: 'review', triggering_value: 72, configured_limit: 100,
+      patient_id: 'patient-001', reading: makeReading(72, 36.6, 97, 'patient-001', 'S01'),
+      explanation: 'e1', priority: 'review', triggering_value: 72, configured_limit: 100,
+      rule_key: 'patient-001:hr_upper',
     })
     store.createDataQualityEvent({ patient_id: 'patient-002', explanation: 'gap' })
     store.clearByPatient('patient-001')
@@ -404,7 +658,7 @@ describe('Patient separation', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. Data-freshness detection
+// 9. Data-freshness detection
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('FreshnessMonitor', () => {
@@ -427,12 +681,10 @@ describe('FreshnessMonitor', () => {
   it('normal readings do not trigger a stale warning', () => {
     const { monitor, eventStore } = setup(5000)
     monitor.onSimulatorStatusChange('running')
-
     for (let i = 0; i < 5; i++) {
       vi.advanceTimersByTime(2000)
       monitor.onReadingReceived('patient-001', new Date().toISOString())
     }
-
     expect(eventStore.getDataQualityEvents('patient-001')).toHaveLength(0)
     expect(monitor.getState('patient-001').status).toBe('fresh')
   })
@@ -441,9 +693,7 @@ describe('FreshnessMonitor', () => {
     const { monitor, eventStore } = setup(5000)
     monitor.onSimulatorStatusChange('running')
     monitor.onReadingReceived('patient-001', new Date().toISOString())
-
     vi.advanceTimersByTime(4900)
-
     expect(monitor.getState('patient-001').status).toBe('fresh')
     expect(eventStore.getDataQualityEvents('patient-001')).toHaveLength(0)
   })
@@ -452,14 +702,10 @@ describe('FreshnessMonitor', () => {
     const { monitor, eventStore } = setup(5000)
     monitor.onSimulatorStatusChange('running')
     monitor.onReadingReceived('patient-001', new Date().toISOString())
-
     vi.advanceTimersByTime(6000)
-
-    const dqEvents = eventStore.getDataQualityEvents('patient-001')
-    expect(dqEvents).toHaveLength(1)
-    expect(dqEvents[0].category).toBe('data_quality')
-
-    // Continue advancing -- still only one event (deduplication)
+    const dq = eventStore.getDataQualityEvents('patient-001')
+    expect(dq).toHaveLength(1)
+    expect(dq[0].category).toBe('data_quality')
     vi.advanceTimersByTime(10_000)
     expect(eventStore.getDataQualityEvents('patient-001')).toHaveLength(1)
   })
@@ -472,48 +718,39 @@ describe('FreshnessMonitor', () => {
     expect(monitor.getState('patient-001').status).toBe('stale')
   })
 
-  it('resuming readings clears stale state and resolves the data_quality event', () => {
+  it('resuming readings clears stale and resolves the data_quality event', () => {
     const { monitor, eventStore } = setup(5000)
     monitor.onSimulatorStatusChange('running')
     monitor.onReadingReceived('patient-001', new Date().toISOString())
-
     vi.advanceTimersByTime(6000)
-    expect(monitor.getState('patient-001').status).toBe('stale')
     const gapEvent = eventStore.getDataQualityEvents('patient-001')[0]
-    expect(gapEvent.status).not.toBe('resolved')
-
     monitor.onReadingReceived('patient-001', new Date().toISOString())
-
     expect(monitor.getState('patient-001').status).toBe('fresh')
     expect(eventStore.getById(gapEvent.event_id)?.status).toBe('resolved')
   })
 
-  it('pausing shows "paused" status, not stale -- no data_quality event created', () => {
+  it('pausing shows "paused" — no data_quality event', () => {
     const { monitor, eventStore } = setup(5000)
     monitor.onSimulatorStatusChange('running')
     monitor.onReadingReceived('patient-001', new Date().toISOString())
-
     monitor.onSimulatorStatusChange('paused')
     vi.advanceTimersByTime(10_000)
-
     expect(monitor.getState('patient-001').status).toBe('paused')
     expect(eventStore.getDataQualityEvents('patient-001')).toHaveLength(0)
   })
 
-  it('onFreshnessChange is called when state transitions to stale', () => {
+  it('onFreshnessChange called on stale transition', () => {
     const { monitor, capture } = setup(5000)
     monitor.onSimulatorStatusChange('running')
     monitor.onReadingReceived('patient-001', new Date().toISOString())
-
     vi.advanceTimersByTime(6000)
-
     const staleCalls = capture.statesFor('patient-001').filter((s) => s.status === 'stale')
     expect(staleCalls.length).toBeGreaterThanOrEqual(1)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. EventStore category isolation
+// 10. EventStore category isolation
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('EventStore category isolation', () => {
@@ -525,27 +762,25 @@ describe('EventStore category isolation', () => {
 
   it('vital_sign events do NOT appear in getDataQualityEvents', () => {
     const store = new EventStore()
-    const r: VitalReading = {
-      reading_id: 'r1', patient_id: 'patient-001', timestamp: new Date().toISOString(),
-      heart_rate_bpm: 105, temperature_c: 37.0, spo2_pct: 97, source: 'synthetic', scenario_id: 'S03',
-    }
     store.createVitalSignEvent({
-      patient_id: 'patient-001', reading: r, explanation: 'e',
-      priority: 'urgent', triggering_value: 105, configured_limit: 100,
+      patient_id: 'patient-001',
+      reading: makeReading(105, 37.0, 97, 'patient-001', 'S03'),
+      explanation: 'e', priority: 'urgent', triggering_value: 105, configured_limit: 100,
+      rule_key: 'patient-001:hr_upper',
     })
     expect(store.getDataQualityEvents('patient-001')).toHaveLength(0)
   })
 
-  it('createDataQualityEvent returns null on second call (deduplication)', () => {
+  it('createDataQualityEvent deduplicates — second call returns null', () => {
     const store = new EventStore()
-    const first = store.createDataQualityEvent({ patient_id: 'patient-001', explanation: 'gap' })
-    const second = store.createDataQualityEvent({ patient_id: 'patient-001', explanation: 'gap again' })
+    const first  = store.createDataQualityEvent({ patient_id: 'patient-001', explanation: 'gap' })
+    const second = store.createDataQualityEvent({ patient_id: 'patient-001', explanation: 'again' })
     expect(first).not.toBeNull()
     expect(second).toBeNull()
     expect(store.getDataQualityEvents('patient-001')).toHaveLength(1)
   })
 
-  it('acknowledging does not resolve an event', () => {
+  it('acknowledging does not resolve', () => {
     const store = new EventStore()
     store.createDataQualityEvent({ patient_id: 'patient-001', explanation: 'gap' })
     const event = store.getDataQualityEvents('patient-001')[0]
@@ -564,57 +799,42 @@ describe('EventStore category isolation', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. RuleEngine persistence
+// 11. RuleEngine persistence
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('RuleEngine persistence (S04 brief crossing does not fire)', () => {
-  function makeReading(hr: number, temp: number, pid = 'patient-001'): VitalReading {
-    return {
-      reading_id: Math.random().toString(36),
-      patient_id: pid,
-      timestamp: new Date().toISOString(),
-      heart_rate_bpm: hr,
-      temperature_c: temp,
-      source: 'synthetic',
-      scenario_id: 'S04',
-    }
-  }
+describe('RuleEngine persistence', () => {
+  const priya = PATIENTS_BY_ID['patient-001']
 
-  it('2 consecutive threshold crossings do NOT fire an event (persistence = 3)', () => {
+  it(`${PERSISTENCE_TICKS - 1} consecutive crossings do NOT fire an event`, () => {
     const store = new EventStore()
     const engine = new RuleEngine(store)
-    const patient = PATIENTS_BY_ID['patient-001'] // threshold_hr_upper = 100
-
-    engine.evaluate(makeReading(102, 37.0), patient)
-    engine.evaluate(makeReading(101, 37.0), patient)
+    for (let i = 0; i < PERSISTENCE_TICKS - 1; i++) {
+      engine.evaluate(makeReading(103, 37.0, 96), priya)
+    }
     expect(store.getVitalSignEvents('patient-001')).toHaveLength(0)
   })
 
-  it('3+ consecutive crossings DO fire exactly one event', () => {
+  it(`${PERSISTENCE_TICKS} consecutive crossings fire exactly one event`, () => {
     const store = new EventStore()
     const engine = new RuleEngine(store)
-    const patient = PATIENTS_BY_ID['patient-001']
-
-    engine.evaluate(makeReading(102, 37.0), patient)
-    engine.evaluate(makeReading(104, 37.1), patient)
-    engine.evaluate(makeReading(106, 37.2), patient) // persistence met
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(103, 37.0, 96), priya)
+    }
     expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
 
-    // More readings still above -- no duplicate
-    engine.evaluate(makeReading(105, 37.2), patient)
-    engine.evaluate(makeReading(103, 37.1), patient)
+    // Additional crossings do not create duplicates
+    engine.evaluate(makeReading(105, 37.0, 96), priya)
+    engine.evaluate(makeReading(103, 37.0, 96), priya)
     expect(store.getVitalSignEvents('patient-001')).toHaveLength(1)
   })
 
-  it('recovery clears the counter but does NOT auto-resolve the event', () => {
+  it('recovery clears counter but does NOT auto-resolve the event', () => {
     const store = new EventStore()
     const engine = new RuleEngine(store)
-    const patient = PATIENTS_BY_ID['patient-001']
-
-    engine.evaluate(makeReading(102, 37.0), patient)
-    engine.evaluate(makeReading(104, 37.1), patient)
-    engine.evaluate(makeReading(106, 37.2), patient) // event created
-    engine.evaluate(makeReading(80, 36.8), patient)  // condition clears
+    for (let i = 0; i < PERSISTENCE_TICKS; i++) {
+      engine.evaluate(makeReading(103, 37.0, 96), priya)
+    }
+    engine.evaluate(makeReading(80, 36.8, 97), priya) // condition clears
 
     const events = store.getVitalSignEvents('patient-001')
     expect(events).toHaveLength(1)

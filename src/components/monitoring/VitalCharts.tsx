@@ -102,11 +102,6 @@ function EcgChart({ data, baseline, upperThreshold, lowerThreshold, domain, late
     alertLevel === 'abnormal'  ? '#f97316' :
     '#0ea5e9'   // sky blue — clear on white background
 
-  const glowColor =
-    alertLevel === 'emergency' ? 'rgba(239,68,68,0.4)' :
-    alertLevel === 'abnormal'  ? 'rgba(249,115,22,0.3)' :
-    'rgba(34,197,94,0.25)'
-
   return (
     <div className={`rounded-xl border bg-white p-4 relative overflow-hidden
       ${alertLevel === 'emergency' ? 'border-red-400 shadow-lg shadow-red-100' :

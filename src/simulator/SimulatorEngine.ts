@@ -185,8 +185,8 @@ export class SimulatorEngine {
       return
     }
 
-    // Use hardcoded patient dataset if available, otherwise fall back to scenario
-    const dataset = PATIENT_DATASETS[this.patient_id]
+    // Use hardcoded patient dataset if default S01, otherwise fall back to scenario
+    const dataset = this.scenario_id && this.scenario_id !== 'S01' ? null : PATIENT_DATASETS[this.patient_id]
     let steps: ScenarioStep[]
     let loopLength: number
 
