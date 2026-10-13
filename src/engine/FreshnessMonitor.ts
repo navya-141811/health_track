@@ -121,6 +121,11 @@ export class FreshnessMonitor {
     }
   }
 
+  /** Remove all tracked patients before starting a fresh caregiver session. */
+  clearAllPatients(): void {
+    this.states = {}
+  }
+
   getState(patient_id: string): FreshnessState {
     return (
       this.states[patient_id] ?? {

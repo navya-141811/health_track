@@ -9,6 +9,14 @@
 import type { PatientProfile, VitalReading, FreshnessState, CareEvent } from '../../types'
 import { FreshnessStatusBadge } from '../shared/FreshnessStatusBadge'
 
+const CONDITION_LABELS: Record<string, string> = {
+  diabetes: 'Diabetes',
+  heart: 'Heart condition',
+  hypertension: 'High blood pressure',
+  respiratory: 'Respiratory issues',
+  elderly_general: 'Elderly general care',
+}
+
 interface Props {
   patient: PatientProfile
   latestReading: VitalReading | null
@@ -46,6 +54,12 @@ export function PatientCard({
         <div>
           <p className="font-semibold text-gray-900">{patient.name}</p>
           <p className="text-xs text-gray-400">Age {patient.age}</p>
+          {patient.device_id && <p className="text-xs text-gray-500">Device {patient.device_id}</p>}
+          {!!patient.known_conditions?.length && (
+            <p className="mt-1 max-w-40 truncate text-xs text-gray-500" title={patient.known_conditions.map((condition) => CONDITION_LABELS[condition] ?? condition).join(', ')}>
+              {patient.known_conditions.map((condition) => CONDITION_LABELS[condition] ?? condition).join(' · ')}
+            </p>
+          )}
         </div>
         <FreshnessStatusBadge state={freshnessState} />
       </div>

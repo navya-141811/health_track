@@ -5,7 +5,7 @@
  * Step 2: Patient Info    (name, age, conditions)
  * Step 3: Thresholds      (optional, pre-filled with defaults based on conditions)
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CaregiverAccount, PatientProfile } from '../../types'
 
 const CONDITION_OPTIONS = [
@@ -18,15 +18,20 @@ const CONDITION_OPTIONS = [
 
 interface Props {
   caregiver: CaregiverAccount
+  onCancel: () => void
+  onLogout: () => void
   onPatientConnected: (patient: PatientProfile) => void
 }
 
 type Step = 'device' | 'patient' | 'thresholds' | 'connecting'
 
-export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
+export function DeviceConnectForm({ caregiver, onCancel, onLogout, onPatientConnected }: Props) {
   const [step, setStep] = useState<Step>('device')
   const [deviceId, setDeviceId] = useState('')
   const [deviceError, setDeviceError] = useState('')
+  const [patientError, setPatientError] = useState('')
+  const [thresholdError, setThresholdError] = useState('')
+  const connectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [patientName, setPatientName] = useState('')
   const [patientAge, setPatientAge] = useState('')
@@ -38,6 +43,10 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
   const [tempUpper, setTempUpper] = useState('37.8')
   const [tempLower, setTempLower] = useState('36.0')
   const [spo2Lower, setSpo2Lower] = useState('93')
+
+  useEffect(() => () => {
+    if (connectionTimerRef.current !== null) clearTimeout(connectionTimerRef.current)
+  }, [])
 
   const toggleCondition = (id: string) => {
     setConditions((prev) =>
@@ -57,33 +66,72 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
 
   const handlePatientSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const age = Number(patientAge)
+    if (!patientName.trim()) {
+      setPatientError('Enter the patient’s name.')
+      return
+    }
+    if (!Number.isInteger(age) || age < 1 || age > 120) {
+      setPatientError('Enter an age between 1 and 120.')
+      return
+    }
+    setPatientError('')
     setStep('thresholds')
   }
 
   const handleThresholdsSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const hrUpperValue = Number(hrUpper)
+    const hrLowerValue = Number(hrLower)
+    const tempUpperValue = Number(tempUpper)
+    const tempLowerValue = Number(tempLower)
+    const spo2LowerValue = Number(spo2Lower)
+    if (
+      !hrUpper.trim() || !hrLower.trim() ||
+      !Number.isFinite(hrUpperValue) || !Number.isFinite(hrLowerValue) ||
+      hrLowerValue <= 0 || hrUpperValue > 300 || hrLowerValue >= hrUpperValue
+    ) {
+      setThresholdError('Heart rate limits must be positive, no higher than 300 BPM, and the lower limit must be below the upper limit.')
+      return
+    }
+    if (
+      !tempUpper.trim() || !tempLower.trim() ||
+      !Number.isFinite(tempUpperValue) || !Number.isFinite(tempLowerValue) ||
+      tempLowerValue >= tempUpperValue
+    ) {
+      setThresholdError('The temperature lower limit must be below the upper limit.')
+      return
+    }
+    if (!spo2Lower.trim() || !Number.isFinite(spo2LowerValue) || spo2LowerValue <= 0 || spo2LowerValue > 100) {
+      setThresholdError('The SpO₂ lower limit must be greater than 0 and no higher than 100%.')
+      return
+    }
+    setThresholdError('')
     setStep('connecting')
 
-    // Simulate a brief connection delay
-    setTimeout(() => {
+    // This is a demo-only connection delay; no physical device is contacted.
+    connectionTimerRef.current = setTimeout(() => {
+      connectionTimerRef.current = null
       const newPatient: PatientProfile = {
         patient_id: `patient-${Date.now()}`,
         name: patientName.trim(),
-        age: parseInt(patientAge) || 0,
+        age: Number(patientAge),
+        device_id: deviceId.trim(),
+        known_conditions: conditions,
 
         baseline_hr_bpm: 72,
         baseline_temp_c: 36.6,
         baseline_spo2_pct: 97,
 
-        threshold_hr_upper: parseFloat(hrUpper) || 100,
-        threshold_hr_lower: parseFloat(hrLower) || 55,
+        threshold_hr_upper: hrUpperValue,
+        threshold_hr_lower: hrLowerValue,
         threshold_hr_rationale: `Custom threshold set by ${caregiver.displayName}.`,
 
-        threshold_temp_upper: parseFloat(tempUpper) || 37.8,
-        threshold_temp_lower: parseFloat(tempLower) || 36.0,
+        threshold_temp_upper: tempUpperValue,
+        threshold_temp_lower: tempLowerValue,
         threshold_temp_rationale: `Custom threshold set by ${caregiver.displayName}.`,
 
-        threshold_spo2_lower: parseFloat(spo2Lower) || 93,
+        threshold_spo2_lower: spo2LowerValue,
         threshold_spo2_rationale: `Custom threshold set by ${caregiver.displayName}.`,
 
         designated_contact_name: caregiver.displayName,
@@ -106,6 +154,22 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
           </div>
           <h1 className="text-2xl font-bold text-gray-900">CarePulse</h1>
           <p className="text-gray-500 text-sm mt-1">Welcome, {caregiver.displayName}</p>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-white transition-colors"
+            >
+              ← Back to devices
+            </button>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-white transition-colors"
+            >
+              Log out
+            </button>
+          </div>
         </div>
 
         {/* Step indicator */}
@@ -134,7 +198,7 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
             <form onSubmit={handleDeviceSubmit} className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold text-gray-800">Connect a Device</h2>
-                <p className="text-sm text-gray-500 mt-1">Enter the device ID printed on the patient's wearable sensor.</p>
+                <p className="text-sm text-gray-500 mt-1">Enter a demo device ID. No physical wearable is connected.</p>
               </div>
 
               <div className="rounded-lg bg-sky-50 border border-sky-200 p-4 flex items-center gap-3">
@@ -145,8 +209,8 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-sky-800">Bluetooth / BLE Sensor</p>
-                  <p className="text-xs text-sky-600">CarePulse Wearable v2</p>
+                  <p className="text-sm font-medium text-sky-800">Simulated wearable sensor</p>
+                  <p className="text-xs text-sky-600">Demo setup only — no Bluetooth connection</p>
                 </div>
               </div>
 
@@ -167,12 +231,12 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                 {deviceError && (
                   <p className="text-xs text-red-500 mt-1">{deviceError}</p>
                 )}
-                <p className="text-xs text-gray-400 mt-1">Demo: enter any ID with 4+ characters</p>
+                <p className="text-xs text-gray-400 mt-1">For this demo, enter any ID with 4 or more characters.</p>
               </div>
 
               <button type="submit"
                 className="w-full rounded-lg bg-sky-500 text-white py-2.5 text-sm font-semibold hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400 transition-colors">
-                Connect Device →
+                Continue →
               </button>
             </form>
           )}
@@ -182,7 +246,7 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
             <form onSubmit={handlePatientSubmit} className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold text-gray-800">Patient Information</h2>
-                <p className="text-sm text-gray-500 mt-1">Device <span className="font-mono font-medium text-sky-600">{deviceId}</span> connected successfully.</p>
+                <p className="text-sm text-gray-500 mt-1">Demo device <span className="font-mono font-medium text-sky-600">{deviceId}</span> accepted.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -210,6 +274,7 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                     required
                     min={1}
                     max={120}
+                    step={1}
                     value={patientAge}
                     onChange={(e) => setPatientAge(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent"
@@ -217,6 +282,7 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                   />
                 </div>
               </div>
+              {patientError && <p role="alert" className="text-sm text-red-600">{patientError}</p>}
 
               <div>
                 <p className="block text-sm font-medium text-gray-700 mb-2">
@@ -262,6 +328,12 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                 </p>
               </div>
 
+              {thresholdError && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {thresholdError}
+                </p>
+              )}
+
               <div className="space-y-4">
                 {/* Heart Rate */}
                 <div className="rounded-lg border border-gray-200 p-4 space-y-3">
@@ -269,12 +341,12 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Upper limit</label>
-                      <input type="number" value={hrUpper} onChange={(e) => setHrUpper(e.target.value)}
+                      <input type="number" required min={1} max={300} value={hrUpper} onChange={(e) => setHrUpper(e.target.value)}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
                     </div>
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Lower limit</label>
-                      <input type="number" value={hrLower} onChange={(e) => setHrLower(e.target.value)}
+                      <input type="number" required min={1} max={300} value={hrLower} onChange={(e) => setHrLower(e.target.value)}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
                     </div>
                   </div>
@@ -286,12 +358,12 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Upper limit</label>
-                      <input type="number" step="0.1" value={tempUpper} onChange={(e) => setTempUpper(e.target.value)}
+                      <input type="number" required step="0.1" value={tempUpper} onChange={(e) => setTempUpper(e.target.value)}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
                     </div>
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Lower limit</label>
-                      <input type="number" step="0.1" value={tempLower} onChange={(e) => setTempLower(e.target.value)}
+                      <input type="number" required step="0.1" value={tempLower} onChange={(e) => setTempLower(e.target.value)}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
                     </div>
                   </div>
@@ -303,7 +375,7 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Lower limit</label>
-                      <input type="number" value={spo2Lower} onChange={(e) => setSpo2Lower(e.target.value)}
+                      <input type="number" required min={1} max={100} value={spo2Lower} onChange={(e) => setSpo2Lower(e.target.value)}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
                     </div>
                     <div className="flex items-end pb-2">
@@ -320,7 +392,7 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                 </button>
                 <button type="submit"
                   className="flex-1 rounded-lg bg-sky-500 text-white py-2.5 text-sm font-semibold hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400 transition-colors">
-                  Start Monitoring →
+                  Start Demo Monitoring →
                 </button>
               </div>
             </form>
@@ -339,8 +411,8 @@ export function DeviceConnectForm({ caregiver, onPatientConnected }: Props) {
                 </div>
               </div>
               <div className="text-center">
-                <p className="font-semibold text-gray-800">Connecting to device {deviceId}…</p>
-                <p className="text-sm text-gray-500 mt-1">Setting up monitoring for <strong>{patientName}</strong></p>
+                <p className="font-semibold text-gray-800">Finishing demo setup for {deviceId}…</p>
+                <p className="text-sm text-gray-500 mt-1">Preparing simulated monitoring for <strong>{patientName}</strong></p>
               </div>
             </div>
           )}

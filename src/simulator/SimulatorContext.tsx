@@ -44,6 +44,7 @@ export interface SimulatorContextValue {
   pause: () => void
   resume: () => void
   reset: () => void
+  clearSession: () => void
   setScenario: (id: ScenarioId) => void
   setPatient: (id: string) => void
   setTickInterval: (ms: number) => void
@@ -195,6 +196,32 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
     setFreshnessStates({})
   }, [patientId])
 
+  const clearSession = useCallback(() => {
+    const patientIds = Object.keys(patientsMapRef.current)
+    engineRef.current.reset()
+    engineRef.current.setPatient(DEFAULT_PATIENT)
+    engineRef.current.setScenario(DEFAULT_SCENARIO)
+    engineRef.current.setTickInterval(DEFAULT_TICK_MS)
+    engineRef.current.setSpeed(1)
+    eventStoreRef.current.clearAll()
+    historyStoreRef.current.clearAll()
+    for (const id of patientIds) ruleEngineRef.current.resetPatient(id)
+    patientsMapRef.current = { ...PATIENTS_BY_ID }
+    setPatientId(DEFAULT_PATIENT)
+    setScenarioId(DEFAULT_SCENARIO)
+    setTickIntervalState(DEFAULT_TICK_MS)
+    setSpeedMultiplierState(1)
+    setTickPosition(0)
+    setReadingHistories({})
+    setEvents([])
+    setFreshnessStates({})
+    setDynamicPatients([])
+    freshnessMonitorRef.current.clearAllPatients()
+    for (const patient of PATIENTS) {
+      freshnessMonitorRef.current.registerPatient(patient.patient_id)
+    }
+  }, [])
+
   const setScenario = useCallback((id: ScenarioId) => {
     engineRef.current.setScenario(id)
     setScenarioId(id)
@@ -270,6 +297,7 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
       pause,
       resume,
       reset,
+      clearSession,
       setScenario,
       setPatient,
       setTickInterval,
@@ -287,7 +315,7 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       status, scenarioId, patientId, tickInterval, speedMultiplier, tickPosition,
-      start, pause, resume, reset, setScenario, setPatient, setTickInterval, setSpeed,
+      start, pause, resume, reset, clearSession, setScenario, setPatient, setTickInterval, setSpeed,
       triggerManualAssistance, readingHistories, events, freshnessStates,
       acknowledgeEvent, resolveEvent, staleTimeoutMs, setStaleTimeoutMs,
       addPatient, dynamicPatients,

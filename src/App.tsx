@@ -20,12 +20,17 @@ import { StaleNotification } from './components/notifications/StaleNotification'
 import { AlertNotification } from './components/notifications/AlertNotification'
 import { LoginPage } from './components/auth/LoginPage'
 import { DeviceConnectPage } from './components/auth/DeviceConnectPage'
+import { PrototypeNotice } from './components/shared/PrototypeNotice'
 import { PATIENTS } from './data/patients'
 import type { CaregiverAccount, PatientProfile } from './types'
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-function Dashboard({ caregiver }: { caregiver: CaregiverAccount }) {
+function Dashboard({ caregiver, initialPatientId, onLogout }: {
+  caregiver: CaregiverAccount
+  initialPatientId?: string
+  onLogout: () => void
+}) {
   const {
     readingHistories,
     freshnessStates,
@@ -39,7 +44,11 @@ function Dashboard({ caregiver }: { caregiver: CaregiverAccount }) {
   const allPatientsById: Record<string, PatientProfile> = {}
   allPatients.forEach((p) => { allPatientsById[p.patient_id] = p })
 
-  const [selectedPatientId, setSelectedPatientId] = useState(allPatients[0]?.patient_id ?? '')
+  const [selectedPatientId, setSelectedPatientId] = useState(
+    initialPatientId && allPatientsById[initialPatientId]
+      ? initialPatientId
+      : allPatients[0]?.patient_id ?? '',
+  )
   const [showConnectForm, setShowConnectForm] = useState(false)
 
   const selectedPatient = allPatientsById[selectedPatientId]
@@ -66,6 +75,7 @@ function Dashboard({ caregiver }: { caregiver: CaregiverAccount }) {
     return (
       <DeviceConnectPage
         caregiver={caregiver}
+        onLogout={onLogout}
         onPatientConnected={handleConnectAnother}
         onGoToDashboard={() => setShowConnectForm(false)}
         connectedPatientIds={allPatients.map((p) => p.patient_id)}
@@ -112,6 +122,12 @@ function Dashboard({ caregiver }: { caregiver: CaregiverAccount }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
             </svg>
             Connect Patient
+          </button>
+          <button
+            onClick={onLogout}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            Log out
           </button>
         </div>
       </header>
@@ -195,15 +211,25 @@ function AppShell() {
   const [view, setView] = useState<AppView>('login')
   const [caregiver, setCaregiver] = useState<CaregiverAccount | null>(null)
   const [connectedIds, setConnectedIds] = useState<string[]>([])
-  const { addPatient } = useSimulator()
+  const [initialPatientId, setInitialPatientId] = useState<string>()
+  const { addPatient, clearSession } = useSimulator()
 
   const handleLogin = (account: CaregiverAccount) => {
     setCaregiver(account)
     setView('device_connect')
   }
 
+  const handleLogout = () => {
+    clearSession()
+    setCaregiver(null)
+    setConnectedIds([])
+    setInitialPatientId(undefined)
+    setView('login')
+  }
+
   const handlePatientConnected = (patient: PatientProfile) => {
     addPatient(patient)
+    setInitialPatientId(patient.patient_id)
     setConnectedIds((prev) =>
       prev.includes(patient.patient_id) ? prev : [...prev, patient.patient_id],
     )
@@ -214,19 +240,23 @@ function AppShell() {
     return (
       <DeviceConnectPage
         caregiver={caregiver}
+        onLogout={handleLogout}
         onPatientConnected={handlePatientConnected}
         onGoToDashboard={() => setView('dashboard')}
         connectedPatientIds={connectedIds}
       />
     )
   }
-  if (view === 'dashboard' && caregiver) return <Dashboard caregiver={caregiver} />
+  if (view === 'dashboard' && caregiver) {
+    return <Dashboard caregiver={caregiver} initialPatientId={initialPatientId} onLogout={handleLogout} />
+  }
   return null
 }
 
 export default function App() {
   return (
     <SimulatorProvider>
+      <PrototypeNotice />
       <AppShell />
     </SimulatorProvider>
   )

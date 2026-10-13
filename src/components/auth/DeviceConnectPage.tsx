@@ -9,9 +9,10 @@
  * animation then calls onPatientConnected for that patient.
  * "Go to Dashboard" appears once at least one device is connected.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PATIENTS } from '../../data/patients'
 import type { CaregiverAccount, PatientProfile } from '../../types'
+import { DeviceConnectForm } from './DeviceConnectForm'
 
 interface Device {
   deviceId: string
@@ -37,6 +38,7 @@ const DEVICES: Device[] = [
 
 interface Props {
   caregiver: CaregiverAccount
+  onLogout: () => void
   onPatientConnected: (patient: PatientProfile) => void
   onGoToDashboard: () => void
   connectedPatientIds: string[]
@@ -46,18 +48,41 @@ type DeviceState = 'idle' | 'connecting' | 'connected'
 
 export function DeviceConnectPage({
   caregiver,
+  onLogout,
   onPatientConnected,
   onGoToDashboard,
   connectedPatientIds,
 }: Props) {
   const [deviceStates, setDeviceStates] = useState<Record<string, DeviceState>>({})
+  const [showNewPatientForm, setShowNewPatientForm] = useState(false)
+  const connectionTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
+  useEffect(() => {
+    const timers = connectionTimersRef.current
+    return () => Object.values(timers).forEach(clearTimeout)
+  }, [])
+
+  if (showNewPatientForm) {
+    return (
+      <DeviceConnectForm
+        caregiver={caregiver}
+        onCancel={() => setShowNewPatientForm(false)}
+        onLogout={onLogout}
+        onPatientConnected={(patient) => {
+          onPatientConnected(patient)
+          onGoToDashboard()
+        }}
+      />
+    )
+  }
 
   const connect = (device: Device) => {
     if (deviceStates[device.deviceId] === 'connecting' || deviceStates[device.deviceId] === 'connected') return
 
     setDeviceStates((prev) => ({ ...prev, [device.deviceId]: 'connecting' }))
 
-    setTimeout(() => {
+    connectionTimersRef.current[device.deviceId] = setTimeout(() => {
+      delete connectionTimersRef.current[device.deviceId]
       setDeviceStates((prev) => ({ ...prev, [device.deviceId]: 'connected' }))
       onPatientConnected(device.patient)
     }, 2000)
@@ -78,15 +103,32 @@ export function DeviceConnectPage({
           </div>
           <h1 className="text-2xl font-bold text-white">CarePulse</h1>
           <p className="text-gray-500 text-sm mt-1">Welcome, {caregiver.displayName}</p>
+          <button
+            onClick={onLogout}
+            className="mt-3 rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-gray-500 hover:text-white transition-colors"
+          >
+            Log out
+          </button>
         </div>
 
         <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl px-6 py-7">
           <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-200">Connect a Device</h2>
+            <h2 className="text-lg font-semibold text-gray-200">Choose a Demo Device</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Select a patient device to begin monitoring. You can connect both.
+              Connect an existing demo device or set up a new patient.
             </p>
           </div>
+
+          <button
+            onClick={() => setShowNewPatientForm(true)}
+            className="mb-5 w-full rounded-lg border border-sky-700 bg-sky-950/40 px-4 py-3 text-left text-sm font-semibold text-sky-300 transition-colors hover:border-sky-500 hover:bg-sky-950/70"
+          >
+            <span className="mr-2 text-lg" aria-hidden="true">＋</span>
+            Add New Patient
+            <span className="mt-0.5 block pl-7 text-xs font-normal text-gray-400">
+              Start a questionnaire and configure monitoring thresholds
+            </span>
+          </button>
 
           <div className="space-y-4">
             {DEVICES.map((device) => {
@@ -149,8 +191,8 @@ export function DeviceConnectPage({
                     <div className="flex-shrink-0">
                       {isConnected ? (
                         <div className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                          Live
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                          Demo Ready
                         </div>
                       ) : isConnecting ? (
                         <div className="flex items-center gap-2 text-xs text-sky-400">
