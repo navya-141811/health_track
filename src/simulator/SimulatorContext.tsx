@@ -58,6 +58,7 @@ export interface SimulatorContextValue {
 
   // Dynamic patient management
   addPatient: (patient: PatientProfile) => void
+  updatePatient: (patient: PatientProfile) => void
   dynamicPatients: PatientProfile[]
 
   // Event actions
@@ -284,6 +285,15 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const updatePatient = useCallback((patient: PatientProfile) => {
+    setDynamicPatients((prev) => {
+      const index = prev.findIndex((p) => p.patient_id === patient.patient_id)
+      if (index === -1) return [...prev, patient]
+      return prev.map((p) => p.patient_id === patient.patient_id ? patient : p)
+    })
+    patientsMapRef.current[patient.patient_id] = patient
+  }, [])
+
 
   const value = useMemo<SimulatorContextValue>(
     () => ({
@@ -311,6 +321,7 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
       staleTimeoutMs,
       setStaleTimeoutMs,
       addPatient,
+      updatePatient,
       dynamicPatients,
     }),
     [
@@ -318,7 +329,7 @@ export function SimulatorProvider({ children }: { children: React.ReactNode }) {
       start, pause, resume, reset, clearSession, setScenario, setPatient, setTickInterval, setSpeed,
       triggerManualAssistance, readingHistories, events, freshnessStates,
       acknowledgeEvent, resolveEvent, staleTimeoutMs, setStaleTimeoutMs,
-      addPatient, dynamicPatients,
+      addPatient, updatePatient, dynamicPatients,
     ],
   )
 

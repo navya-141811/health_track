@@ -12,6 +12,7 @@
 import { useState } from 'react'
 import { SimulatorProvider, useSimulator } from './simulator/SimulatorContext'
 import { PatientCard } from './components/dashboard/PatientCard'
+import { PatientProfileForm } from './components/dashboard/PatientProfileForm'
 import { MonitoringBanner } from './components/monitoring/MonitoringBanner'
 import { VitalCharts } from './components/monitoring/VitalCharts'
 import { EventPanel } from './components/monitoring/EventPanel'
@@ -37,10 +38,10 @@ function Dashboard({ caregiver, initialPatientId, onLogout }: {
     events,
     setPatient,
     dynamicPatients,
-    addPatient,
+    updatePatient,
   } = useSimulator()
 
-  const allPatients = [...PATIENTS, ...dynamicPatients]
+  const allPatients = [...PATIENTS.filter((p) => !dynamicPatients.some((dynamic) => dynamic.patient_id === p.patient_id)), ...dynamicPatients]
   const allPatientsById: Record<string, PatientProfile> = {}
   allPatients.forEach((p) => { allPatientsById[p.patient_id] = p })
 
@@ -50,6 +51,7 @@ function Dashboard({ caregiver, initialPatientId, onLogout }: {
       : allPatients[0]?.patient_id ?? '',
   )
   const [showConnectForm, setShowConnectForm] = useState(false)
+  const [profilePatient, setProfilePatient] = useState<PatientProfile | null>(null)
 
   const selectedPatient = allPatientsById[selectedPatientId]
   const readings = readingHistories[selectedPatientId] ?? []
@@ -61,13 +63,25 @@ function Dashboard({ caregiver, initialPatientId, onLogout }: {
   }
 
   const handleSelectPatient = (id: string) => {
+    if (id === 'patient-002') {
+      setProfilePatient(allPatientsById[id])
+      return
+    }
     setSelectedPatientId(id)
     setPatient(id)
   }
 
-  const handleConnectAnother = (patient: PatientProfile) => {
-    addPatient(patient)
+  const handleProfileSave = (patient: PatientProfile) => {
+    updatePatient(patient)
     setSelectedPatientId(patient.patient_id)
+    setPatient(patient.patient_id)
+    setProfilePatient(null)
+  }
+
+  const handleConnectAnother = (patient: PatientProfile) => {
+    updatePatient(patient)
+    setSelectedPatientId(patient.patient_id)
+    setPatient(patient.patient_id)
     setShowConnectForm(false)
   }
 
@@ -80,6 +94,27 @@ function Dashboard({ caregiver, initialPatientId, onLogout }: {
         onGoToDashboard={() => setShowConnectForm(false)}
         connectedPatientIds={allPatients.map((p) => p.patient_id)}
       />
+    )
+  }
+
+  if (profilePatient) {
+    return (
+      <div className="min-h-screen bg-gray-950">
+        <header className="flex items-center justify-between border-b border-gray-800 bg-gray-950 px-6 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500 text-lg font-bold text-white">+</div>
+            <div>
+              <h1 className="text-base font-bold leading-none text-white">CarePulse</h1>
+              <p className="mt-1 text-xs text-gray-400">{caregiver.displayName} · {caregiver.role}</p>
+            </div>
+          </div>
+        </header>
+        <PatientProfileForm
+          patient={profilePatient}
+          onSave={handleProfileSave}
+          onCancel={() => setProfilePatient(null)}
+        />
+      </div>
     )
   }
 
@@ -125,7 +160,7 @@ function Dashboard({ caregiver, initialPatientId, onLogout }: {
           </button>
           <button
             onClick={onLogout}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-400 hover:bg-gray-100 hover:text-gray-900"
           >
             Log out
           </button>
@@ -212,7 +247,7 @@ function AppShell() {
   const [caregiver, setCaregiver] = useState<CaregiverAccount | null>(null)
   const [connectedIds, setConnectedIds] = useState<string[]>([])
   const [initialPatientId, setInitialPatientId] = useState<string>()
-  const { addPatient, clearSession } = useSimulator()
+  const { addPatient, clearSession, pause } = useSimulator()
 
   const handleLogin = (account: CaregiverAccount) => {
     setCaregiver(account)
@@ -221,6 +256,7 @@ function AppShell() {
 
   const handleLogout = () => {
     clearSession()
+    pause()
     setCaregiver(null)
     setConnectedIds([])
     setInitialPatientId(undefined)

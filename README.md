@@ -30,3 +30,7 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## Standalone onboarding prototype
+
+`prototype.html` is a separate browser-only mockup with a demo caregiver sign-in and patient setup form. Open it directly in a browser; it stores its demo profile in that browser. It does not provide real authentication or medical monitoring.

@@ -11,6 +11,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { PATIENTS } from '../../data/patients'
+import { PatientProfileForm } from '../dashboard/PatientProfileForm'
 import type { CaregiverAccount, PatientProfile } from '../../types'
 import { DeviceConnectForm } from './DeviceConnectForm'
 
@@ -55,6 +56,8 @@ export function DeviceConnectPage({
 }: Props) {
   const [deviceStates, setDeviceStates] = useState<Record<string, DeviceState>>({})
   const [showNewPatientForm, setShowNewPatientForm] = useState(false)
+  const [devicePatients, setDevicePatients] = useState<Record<string, PatientProfile>>({})
+  const [profileDevice, setProfileDevice] = useState<Device | null>(null)
   const connectionTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   useEffect(() => {
@@ -79,6 +82,12 @@ export function DeviceConnectPage({
   const connect = (device: Device) => {
     if (deviceStates[device.deviceId] === 'connecting' || deviceStates[device.deviceId] === 'connected') return
 
+    // Collect the second patient's profile before entering the dashboard.
+    if (device.patient.patient_id === 'patient-002') {
+      setProfileDevice(device)
+      return
+    }
+
     setDeviceStates((prev) => ({ ...prev, [device.deviceId]: 'connecting' }))
 
     connectionTimersRef.current[device.deviceId] = setTimeout(() => {
@@ -86,6 +95,22 @@ export function DeviceConnectPage({
       setDeviceStates((prev) => ({ ...prev, [device.deviceId]: 'connected' }))
       onPatientConnected(device.patient)
     }, 2000)
+  }
+
+  if (profileDevice) {
+    const patient = devicePatients[profileDevice.deviceId] ?? profileDevice.patient
+    return (
+      <PatientProfileForm
+        patient={patient}
+        onCancel={() => setProfileDevice(null)}
+        onSave={(updatedPatient) => {
+          setDevicePatients((prev) => ({ ...prev, [profileDevice.deviceId]: updatedPatient }))
+          setDeviceStates((prev) => ({ ...prev, [profileDevice.deviceId]: 'connected' }))
+          onPatientConnected(updatedPatient)
+          setProfileDevice(null)
+        }}
+      />
+    )
   }
 
   const anyConnected = connectedPatientIds.length > 0
@@ -132,9 +157,15 @@ export function DeviceConnectPage({
 
           <div className="space-y-4">
             {DEVICES.map((device) => {
-              const state = deviceStates[device.deviceId] ?? 'idle'
+              const patient = devicePatients[device.deviceId] ?? device.patient
+              const state = deviceStates[device.deviceId] ?? (connectedPatientIds.includes(patient.patient_id) ? 'connected' : 'idle')
               const isConnected = state === 'connected'
               const isConnecting = state === 'connecting'
+              const enteredConditions = patient.medical_conditions
+                ?.split(/[,;\n]/)
+                .map((condition) => condition.trim())
+                .filter(Boolean)
+              const displayedConditions = enteredConditions?.length ? enteredConditions : device.conditions
 
               return (
                 <div
@@ -168,8 +199,8 @@ export function DeviceConnectPage({
 
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-gray-100">{device.patient.name}</p>
-                          <span className="text-xs text-gray-500">Age {device.patient.age}</span>
+                          <p className="font-semibold text-gray-100">{patient.name}</p>
+                          <span className="text-xs text-gray-500">Age {patient.age}</span>
                           {isConnected && (
                             <span className="rounded-full bg-green-900/60 px-2 py-0.5 text-xs font-medium text-green-400">
                               Connected
@@ -178,7 +209,7 @@ export function DeviceConnectPage({
                         </div>
                         <p className="text-xs text-gray-500 mt-0.5 font-mono">{device.deviceId} · {device.deviceLabel}</p>
                         <div className="flex flex-wrap gap-1.5 mt-2">
-                          {device.conditions.map((c) => (
+                          {displayedConditions.map((c) => (
                             <span key={c} className="rounded-full bg-gray-700 px-2 py-0.5 text-xs text-gray-400">
                               {c}
                             </span>

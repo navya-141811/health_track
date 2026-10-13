@@ -20,6 +20,8 @@ export interface PatientProfile {
   age: number
   device_id?: string
   known_conditions?: string[]
+  patient_phone?: string
+  medical_conditions?: string
 
   // ── Baselines (patient-specific reference, not clinical norms) ────────────
   baseline_hr_bpm: number
