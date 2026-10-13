@@ -116,29 +116,29 @@ export function DeviceConnectPage({
   const anyConnected = connectedPatientIds.length > 0
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-blue-50 flex items-center justify-center px-4">
       <div className="w-full max-w-xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-sky-500 shadow-lg shadow-sky-900/50 mb-3">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-sky-500 shadow-lg shadow-sky-200 mb-3">
             <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-white">CarePulse</h1>
+          <h1 className="text-2xl font-bold text-gray-900">CarePulse</h1>
           <p className="text-gray-500 text-sm mt-1">Welcome, {caregiver.displayName}</p>
           <button
             onClick={onLogout}
-            className="mt-3 rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-gray-500 hover:text-white transition-colors"
+            className="mt-3 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors"
           >
             Log out
           </button>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl px-6 py-7">
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-lg shadow-gray-100 px-6 py-7">
           <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-200">Choose a Demo Device</h2>
+            <h2 className="text-lg font-semibold text-gray-800">Choose a Demo Device</h2>
             <p className="text-sm text-gray-500 mt-1">
               Connect an existing demo device or set up a new patient.
             </p>
@@ -146,11 +146,11 @@ export function DeviceConnectPage({
 
           <button
             onClick={() => setShowNewPatientForm(true)}
-            className="mb-5 w-full rounded-lg border border-sky-700 bg-sky-950/40 px-4 py-3 text-left text-sm font-semibold text-sky-300 transition-colors hover:border-sky-500 hover:bg-sky-950/70"
+            className="mb-5 w-full rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-left text-sm font-semibold text-sky-700 transition-colors hover:border-sky-400 hover:bg-sky-100"
           >
             <span className="mr-2 text-lg" aria-hidden="true">＋</span>
             Add New Patient
-            <span className="mt-0.5 block pl-7 text-xs font-normal text-gray-400">
+            <span className="mt-0.5 block pl-7 text-xs font-normal text-gray-500">
               Start a questionnaire and configure monitoring thresholds
             </span>
           </button>
@@ -172,21 +172,19 @@ export function DeviceConnectPage({
                   key={device.deviceId}
                   className={`rounded-xl border p-5 transition-all ${
                     isConnected
-                      ? 'border-green-700 bg-green-950/30'
+                      ? 'border-green-300 bg-green-50'
                       : isConnecting
-                      ? 'border-sky-700 bg-sky-950/20'
-                      : 'border-gray-700 bg-gray-800/60 hover:border-gray-600'
+                      ? 'border-sky-300 bg-sky-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    {/* Device info */}
                     <div className="flex items-start gap-4">
-                      {/* Icon */}
                       <div className={`mt-0.5 w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        isConnected ? 'bg-green-900/60' : 'bg-gray-700'
+                        isConnected ? 'bg-green-100' : 'bg-gray-100'
                       }`}>
                         {isConnected ? (
-                          <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
                         ) : (
@@ -199,18 +197,18 @@ export function DeviceConnectPage({
 
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-gray-100">{patient.name}</p>
-                          <span className="text-xs text-gray-500">Age {patient.age}</span>
+                          <p className="font-semibold text-gray-900">{patient.name}</p>
+                          <span className="text-xs text-gray-400">Age {patient.age}</span>
                           {isConnected && (
-                            <span className="rounded-full bg-green-900/60 px-2 py-0.5 text-xs font-medium text-green-400">
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                               Connected
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5 font-mono">{device.deviceId} · {device.deviceLabel}</p>
+                        <p className="text-xs text-gray-400 mt-0.5 font-mono">{device.deviceId} · {device.deviceLabel}</p>
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {displayedConditions.map((c) => (
-                            <span key={c} className="rounded-full bg-gray-700 px-2 py-0.5 text-xs text-gray-400">
+                            <span key={c} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
                               {c}
                             </span>
                           ))}
@@ -218,22 +216,21 @@ export function DeviceConnectPage({
                       </div>
                     </div>
 
-                    {/* Connect button */}
                     <div className="flex-shrink-0">
                       {isConnected ? (
-                        <div className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                        <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                           Demo Ready
                         </div>
                       ) : isConnecting ? (
-                        <div className="flex items-center gap-2 text-xs text-sky-400">
-                          <div className="w-4 h-4 rounded-full border-2 border-sky-700 border-t-sky-400 animate-spin" />
+                        <div className="flex items-center gap-2 text-xs text-sky-500">
+                          <div className="w-4 h-4 rounded-full border-2 border-sky-200 border-t-sky-500 animate-spin" />
                           Connecting…
                         </div>
                       ) : (
                         <button
                           onClick={() => connect(device)}
-                          className="rounded-lg bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400"
+                          className="rounded-lg bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400"
                         >
                           Connect
                         </button>
@@ -246,16 +243,16 @@ export function DeviceConnectPage({
           </div>
 
           {/* Go to dashboard */}
-          <div className="mt-6 pt-5 border-t border-gray-800">
+          <div className="mt-6 pt-5 border-t border-gray-100">
             {anyConnected ? (
               <button
                 onClick={onGoToDashboard}
-                className="w-full rounded-lg bg-green-600 hover:bg-green-500 text-white py-2.5 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-green-400"
+                className="w-full rounded-lg bg-green-500 hover:bg-green-600 text-white py-2.5 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-green-400"
               >
                 Go to Dashboard →
               </button>
             ) : (
-              <p className="text-center text-xs text-gray-600">
+              <p className="text-center text-xs text-gray-400">
                 Connect at least one device to continue
               </p>
             )}
